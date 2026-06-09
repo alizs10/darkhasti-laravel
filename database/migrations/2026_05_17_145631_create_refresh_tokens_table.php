@@ -17,6 +17,9 @@ return new class extends Migration
             $table->string('token', 500); // VARCHAR(500) - JWTs are typically < 500 chars
             $table->timestamp('expires_at');
             $table->boolean('revoked')->default(false);
+            $table->timestamp('revoked_at')->nullable();
+            $table->text('replacement_access_token')->nullable();
+            $table->text('replacement_refresh_token')->nullable();
             $table->timestamps();
 
             $table->index(['user_id', 'revoked']);
