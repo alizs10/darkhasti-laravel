@@ -76,6 +76,14 @@ class CommentController extends Controller
         );
     }
 
+    public function getAll()
+    {
+        return $this->successResponse(
+            Comment::all(),
+            'All comments fetched successfully'
+        );
+    }
+
     /**
      * Get comments for a specific request (with cursor pagination + threading)
      */

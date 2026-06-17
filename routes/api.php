@@ -29,6 +29,7 @@ Route::prefix('requests')->group(function () {
 
     // public
     Route::get('/', [RequestController::class, 'index']);
+    Route::get('/all', [RequestController::class, 'getAll']);
     Route::get('/{request}', [RequestController::class, 'show']);
     Route::get('/{request}/related', [RequestController::class, 'related']);
     Route::get('/{request_model}/comments', [CommentController::class, 'requestComments']);
@@ -45,6 +46,7 @@ Route::prefix('requests')->group(function () {
 // Comments routes
 Route::prefix('comments')->group(function () {
     // public
+    Route::get('/all', [CommentController::class, 'getAll']);
     Route::get('/{comment}/replies', [CommentController::class, 'index']);
     Route::get('/{comment}', [CommentController::class, 'show']);
 

@@ -32,12 +32,22 @@ class RequestController extends Controller
             'order' => ['nullable', Rule::in(['visit', 'new', 'favorite', 'comment', 'old'])],
             'cursor' => ['nullable', 'string'],
             'search' => ['nullable', 'string', 'max:255'],
+
+            // 1. Add custom validation for per_page
+            'per_page' => ['nullable', function ($attribute, $value, $fail) {
+                // Allow 'all', or a number between 1 and 100
+                if ($value !== 'all' && (! is_numeric($value) || $value < 1 || $value > 100)) {
+                    $fail('The :attribute must be a number between 1 and 100 or "all".');
+                }
+            }],
         ]);
 
         $order = $request->query('order', 'visit');
         $search = $request->query('search');
+        $perPage = $request->query('per_page', 30); // Default to 30
 
-        $query = RequestModel::whereNotNull('published_at')->with(['author', 'attachedFiles'])
+        $query = RequestModel::whereNotNull('published_at')
+            ->with(['author', 'attachedFiles'])
             ->withCount(['visits', 'likes', 'replies']);
 
         // Apply search filter if search term is provided
@@ -47,36 +57,57 @@ class RequestController extends Controller
 
         switch ($order) {
             case 'new':
-                // If "new" means most recently published:
                 $query->orderByDesc('published_at')->orderByDesc('id');
                 break;
             case 'old':
                 $query->orderBy('published_at', 'asc')->orderBy('id', 'asc');
                 break;
-
             case 'favorite':
                 $query->orderByDesc('likes_count')->orderByDesc('id');
                 break;
-
             case 'comment':
                 $query->orderByDesc('replies_count')->orderByDesc('id');
                 break;
-
             case 'visit':
             default:
                 $query->orderByDesc('visits_count')->orderByDesc('id');
                 break;
         }
 
-        $total = $query->count();
+        // 2. Handle the "all" condition
+        if ($perPage === 'all') {
+            $requests = $query->get();
 
-        $requests = $query->cursorPaginate(30);
+            // Return a standard JSON response (Adjust this to match your API's standard success format)
+            return $this->successResponse(
+                $requests,
+                'All requests fetched successfully',
+                200,
+                [
+                    'total' => $requests->count(),
+                ]
+            );
+        }
+
+        // 3. Handle standard numeric pagination
+        $total = $query->count();
+        $requests = $query->cursorPaginate((int) $perPage);
 
         return $this->cursorPaginatedResponse(
             $requests->items(),
             $requests,
             'Requests fetched successfully',
             $total
+        );
+    }
+
+    public function getAll()
+    {
+        $requests = RequestModel::whereNotNull('published_at')->get();
+
+        return $this->successResponse(
+            $requests,
+            'All Requests fetched successfully'
         );
     }
 

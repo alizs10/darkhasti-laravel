@@ -3,11 +3,12 @@
 namespace App\Http\Controllers;
 
 use App\ApiResponse;
+use App\Http\Requests\ChangePasswordRequest;
+use App\Http\Requests\RegisterRequest;
 use App\Models\RefreshToken;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Validation\Rules\Password;
 use Tymon\JWTAuth\Exceptions\TokenBlacklistedException;
 use Tymon\JWTAuth\Exceptions\TokenExpiredException;
 use Tymon\JWTAuth\Exceptions\TokenInvalidException;
@@ -17,12 +18,9 @@ class AuthController extends Controller
 {
     use ApiResponse;
 
-    public function register(Request $request)
+    public function register(RegisterRequest $request)
     {
-        $validated = $request->validate([
-            'username' => ['required', 'string', 'max:255', 'unique:users'],
-            'password' => ['required', 'confirmed', Password::defaults()],
-        ]);
+        $validated = $request->validated();
 
         $user = User::create([
             'username' => $validated['username'],
@@ -102,11 +100,12 @@ class AuthController extends Controller
             }
 
             // Generate new tokens
-            $newAccessToken = JWTAuth::fromUser($user);
+            // $newAccessToken = JWTAuth::fromUser($user);
+            // $newRefreshToken = $this->createRefreshToken($user);
+            // Generate new tokens — clear any lingering custom claims first
+            $newAccessToken = JWTAuth::customClaims([])->fromUser($user);
             $newRefreshToken = $this->createRefreshToken($user);
 
-            // Invalidate the old refresh token and store what was issued
-            // so concurrent requests within the grace window can reuse it
             $this->invalidateRefreshToken($refreshToken, $newAccessToken, $newRefreshToken);
 
             return $this->successResponse([
@@ -143,12 +142,9 @@ class AuthController extends Controller
         }
     }
 
-    public function changePassword(Request $request)
+    public function changePassword(ChangePasswordRequest $request)
     {
-        $validated = $request->validate([
-            'current_password' => ['required', 'string'],
-            'new_password' => ['required', 'confirmed', Password::defaults()],
-        ]);
+        $validated = $request->validated();
 
         $user = auth()->user();
 
