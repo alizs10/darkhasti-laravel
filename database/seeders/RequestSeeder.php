@@ -15,7 +15,6 @@ class RequestSeeder extends Seeder
     public function run(): void
     {
         DB::transaction(function () {
-            // Clean up in FK-safe order
             RequestVote::query()->delete();
             RequestVisit::query()->delete();
             Request::query()->delete();
@@ -28,79 +27,120 @@ class RequestSeeder extends Seeder
                 return;
             }
 
-            // Create 5 requests per user
-            $requests = collect();
+            $requestTemplates = [
+                ['title' => 'بازخورد رزومه برای موقعیت بازاریابی دیجیتال', 'description' => 'رزومه‌ام را برای یک شرکت استارتاپی ارسال کردم و دوست دارم بدانم کدام قسمت نیاز به بهبود دارد تا شانس مصاحبه بیشتر شود.'],
+                ['title' => 'نامه انگیزشی برای شرکت بین‌المللی چگونه بنویسم؟', 'description' => 'برای یک فرصت کارآموزی بین‌المللی درخواست دادم و نمی‌دانم چطور تجربه‌های کوچک را به شکل حرفه‌ای در نامه بیان کنم.'],
+                ['title' => 'آماده‌سازی برای مصاحبه تلفنی با شرکت نرم‌افزاری', 'description' => 'مصاحبه اولیه با یک شرکت نرم‌افزاری دارم و می‌خواهم بدانم چه سوالاتی احتمالا می‌پرسند و چطور بهتر جواب بدهم.'],
+                ['title' => 'کار تمام‌وقت بهتر است یا فریلنس؟', 'description' => 'بین پیشنهاد یک موقعیت تمام‌وقت و پروژه فریلنسینگ با درآمد بهتر مانده‌ام. کدام گزینه در شرایط فعلی بیشتر منطقی است؟'],
+                ['title' => 'چطور سابقه دانشگاهی ضعیف را در مصاحبه توضیح دهم؟', 'description' => 'اغلب در رزومه روی تجربه‌های کاری تاکید کرده‌ام، اما دانشگاهی که رفتم ضعیف است. چگونه به این موضوع در مصاحبه پاسخ دهم؟'],
 
-            foreach ($users as $userIndex => $user) {
-                for ($i = 1; $i <= 5; $i++) {
-                    $publishedAt = Carbon::now()
-                        ->subDays(($userIndex * 3) + rand(0, 10))
-                        ->subHours(rand(0, 23))
-                        ->subMinutes(rand(0, 59));
+                ['title' => 'کمک برای نوشتن مقاله پایان‌ترم روانشناسی', 'description' => 'موضوع پایان‌ترم من درباره تاثیر شبکه‌های اجتماعی بر اضطراب است. به نکاتی برای ساختار مقاله و ارجاع صحیح نیاز دارم.'],
+                ['title' => 'برنامه مطالعه برای امتحان کنکور چگونه باشد؟', 'description' => 'دو ماه تا کنکور مانده و بین درس‌های عمومی و اختصاصی سردرگم هستم. کسی می‌تواند برنامه‌ای واقع‌گرایانه پیشنهاد دهد؟'],
+                ['title' => 'کدام دوره آنلاین برنامه‌نویسی ارزش دارد؟', 'description' => 'بین دو دوره‌ آموزش وب و موبایل سردرگم شده‌ام. می‌خواهم بدانم کدام دوره برای شروع بازار کار بهتر است.'],
+                ['title' => 'ساختار تز کارشناسی را چطور تنظیم کنم؟', 'description' => 'موضوع پایان‌نامه من درباره تاثیر تکنولوژی بر آموزش است. به راهنمایی در مورد فصول و منابع نیاز دارم.'],
+                ['title' => 'انتخاب بین درس‌های تخصصی و عمومی برای ترم بعد', 'description' => 'چه فاکتورهایی را باید برای انتخاب واحدهای ترم بعد در نظر بگیرم تا هم معدل خوب باشد و هم فرصت شغلی بیشتری داشته باشم؟'],
 
-                    $requests->push(
-                        Request::create([
-                            'title' => "Request {$user->username} #{$i}",
-                            'description' => 'Lorem ipsum description for '.$user->username,
-                            'author_id' => $user->id,
-                            'published_at' => $publishedAt,
-                        ])
-                    );
-                }
-            }
+                ['title' => 'نصب npm روی پروژه Vue با ارور مواجه می‌شود', 'description' => 'در سرور محلی هنگام npm install، پیام خطای dependency conflict می‌گیرم. به کمک برای رفع مشکل نیاز دارم.'],
+                ['title' => 'اتصال VPN روی مک قطع و وصل می‌شود', 'description' => 'در استفاده از VPN روی مک هر چند دقیقه یک بار اتصال قطع می‌شود. تنظیمات پرکاربرد یا راه‌حل خاصی هست؟'],
+                ['title' => 'تنظیم ایمیل در لاراول انجام نمی‌شود', 'description' => 'در ارسال ایمیل با Mailgun در لاراول خطایی از سرور دریافت می‌کنم. فایل .env و کانفیگ را چک کرده‌ام اما موفق نشدم.'],
+                ['title' => 'دستگاه اندروید به وای‌فای وصل نمی‌شود', 'description' => 'گوشی خانواده‌ام بدون خطا به وای‌فای وصل نمی‌شود. تنظیمات DHCP و رمز را بررسی کرده‌ام. چه راه‌هایی باقی می‌ماند؟'],
+                ['title' => 'ارور حافظه حین اجرای Python داشبورد', 'description' => 'یک اسکریپت پایتون دارم که در پردازش داده‌های بزرگ خطای out of memory می‌دهد. چه تکنیک‌هایی برای کاهش مصرف حافظه پیشنهاد می‌شود؟'],
 
-            // Fake visits
+                ['title' => 'مشکل بازگشتی در الگوریتم مرتب‌سازی', 'description' => 'کدی نوشتم که در برخی ورودی‌ها وارد حلقه بی‌نهایت می‌شود. ساختار بازگشتی من چه خطایی می‌تواند داشته باشد؟'],
+                ['title' => 'طراحی API سفارش‌گیری چه نکاتی دارد؟', 'description' => 'می‌خواهم API ثبت سفارش برای فروشگاه آنلاین بسازم. چه endpoint ها و وضعیت‌هایی باید در نظر بگیرم؟'],
+                ['title' => 'خطای bind_param در PHP چه علتی دارد؟', 'description' => 'هنگام اجرای prepared statement در PHP، bind_param کار نمی‌کند و query اجرا نمی‌شود. کجا باید بررسی کنم؟'],
+                ['title' => 'بهترین معماری پنل ادمین لاراول چیست؟', 'description' => 'برای یک پنل ادمین با چندین نقش کاربری و قابلیت مدیریت محتوا، چه معماری‌ای پیشنهاد می‌کنید؟'],
+                ['title' => 'نوشتن query پیچیده با eager loading در لاراول', 'description' => 'می‌خواهم داده‌ها را با چند رابطه بارگذاری کنم و تعداد کامنت‌ها را هم بیاورم. بهترین روش چیست؟'],
+
+                ['title' => 'بودجه‌بندی ماهانه برای دانشجو چگونه باشد؟', 'description' => 'حقوق دانشجویی دارم و می‌خواهم برنامه‌ای برای هزینه خورد و خوراک، اجاره و پس‌انداز تنظیم کنم.'],
+                ['title' => 'سرمایه‌گذاری در بورس یا ارز دیجیتال کدام امن‌تر است؟', 'description' => 'پس‌انداز کمی دارم و بین ورود به بورس یا خرید ارز دیجیتال مردد شده‌ام. ریسک و سود را چگونه بسنجم؟'],
+                ['title' => 'وام مسکن بگیرم یا فعلاً اجاره بدهم؟', 'description' => 'نرخ سود و قیمت مسکن بالا است. با درآمد فعلی، گرفتن وام منطقی است یا بهتر است فعلاً اجاره بمانم؟'],
+                ['title' => 'چگونه هزینه اشتراک‌ها را مدیریت کنم؟', 'description' => 'چند سرویس آنلاین دارم و نمی‌دانم چطور ارزش هر کدام را بسنجم تا پول کمتری هدر برود.'],
+                ['title' => 'چه نکاتی برای پس‌انداز پول باید در نظر گرفت؟', 'description' => 'می‌خواهم پس‌انداز موثرتری داشته باشم و از خرج‌های غیرضروری جلوگیری کنم. پیشنهادهایی دارید؟'],
+
+                ['title' => 'مدارک لازم برای ثبت شرکت چیست؟', 'description' => 'می‌خواهم کسب‌وکار کوچکی ثبت کنم. مدارک و مراحل اولیه در ایران چیست؟'],
+                ['title' => 'نوشتن اجاره‌نامه قانونی چگونه است؟', 'description' => 'برای اجاره خانه می‌خواهم قرارداد درست بنویسم. چه بندهایی باید حتما در قرارداد باشد؟'],
+                ['title' => 'انتقال پلاک خودرو چه مراحل دارد؟', 'description' => 'قرار است پلاک ماشین را به نام خودم بزنم. چه مدارک و هزینه‌هایی نیاز است؟'],
+                ['title' => 'آیا بدون وکیل می‌توان شکایت اداری ثبت کرد؟', 'description' => 'دنبال راهنمایی برای نوشتن شکایت اداری هستم. بدون وکیل چه مواردی باید رعایت شود؟'],
+                ['title' => 'مالیات فریلنسرها در ایران چگونه محاسبه می‌شود؟', 'description' => 'به عنوان فریلنسر پروژه می‌گیرم و هنوز با مالیات درآمد و گزارش به سازمان مالیاتی آشنا نیستم.'],
+
+                ['title' => 'چطور برنامه خواب ۸ ساعته بسازم؟', 'description' => 'من دیر می‌خوابم و صبح‌ها همیشه خسته هستم. می‌خواهم خواب منظم‌تری داشته باشم.'],
+                ['title' => 'رژیم سالم برای کاهش وزن چه باید باشد؟', 'description' => 'هدفم کاهش وزن آهسته و مداوم است. رژیم غذایی و ورزش روزانه‌ام چه تغییراتی لازم دارد؟'],
+                ['title' => 'تمرینات ساده پشت میز کار چیست؟', 'description' => 'کارم نشسته است و کمردرد می‌گیرم. تمریناتی می‌خواهم که بدون تجهیزات در محل کار انجام دهم.'],
+                ['title' => 'آیا مصرف مکمل ویتامین D لازم است؟', 'description' => 'در تست خون سطح ویتامین Dام کمی پایین بود. آیا باید مکمل مصرف کنم یا راه طبیعی بهتر است؟'],
+                ['title' => 'چطور استرس امتحان را کاهش دهم؟', 'description' => 'قبل از امتحان بسیار مضطرب می‌شوم. تکنیک‌های سریع برای کنترل استرس دارید؟'],
+
+                ['title' => 'بین دو گوشی جدید کدام برای کار روزانه بهتر است؟', 'description' => 'دو مدل گوشی دارم و باید یکی را انتخاب کنم. کاربری اصلی من پیام‌رسان، تماس و کمی ویرایش عکس است.'],
+                ['title' => 'لپ‌تاپ دست دوم برای دانشجو مناسب است؟', 'description' => 'بودجه محدودی دارم و می‌خواهم لپ‌تاپ دست دوم بخرم. چه مشخصاتی باید حتما داشته باشد؟'],
+                ['title' => 'بهترین هدفون بلوتوث برای تماس کاری چیست؟', 'description' => 'برای جلسه‌های آنلاین دنبال هدفون با نویزگیر خوب هستم و نمی‌خواهم زیاد هزینه کنم.'],
+                ['title' => 'خرید بیمه اینترنتی چقدر منطقی است؟', 'description' => 'می‌خواهم از خرید اینترنتی مطمئن شوم. بیمه سفارش چقدر ارزش دارد؟'],
+                ['title' => 'تجربه خرید از فروشگاه X چگونه بود؟', 'description' => 'از فروشگاه آنلاین جدید خرید کردم و می‌خواهم بدانم دیگران چه تجربه‌ای داشته‌اند.'],
+
+                ['title' => 'چطور با همکلاسی متفاوت کنار بیایم؟', 'description' => 'همکلاسی دارم که روحیه‌اش با من خیلی فرق دارد و در گروه کاری سخت می‌توانیم همکاری کنیم. پیشنهاد شما چیست؟'],
+                ['title' => 'چطور به دوست بگویم زمان بیشتری برای درس می‌خواهم؟', 'description' => 'دوست صمیمی‌ام انتظار دارد همیشه با هم بیرون برویم. نمی‌خواهم رفاقت خراب شود ولی باید درس بخوانم.'],
+                ['title' => 'پاسخ دادن به پیام ناراحت‌کننده چه جوری باشد؟', 'description' => 'یک پیام نامناسب از همکار دریافت کردم. می‌خواهم محترمانه جواب بدهم اما واضح هم باشد.'],
+                ['title' => 'حفظ مرزهای شخصی در محل کار چه نکاتی دارد؟', 'description' => 'در تیم کاری بعضی افراد درخواست‌های شخصی زیادی از من دارند. چگونه مرزها را محترمانه تعیین کنم؟'],
+                ['title' => 'شروع گفتگو با عضو جدید تیم چگونه باشد؟', 'description' => 'یک نفر جدید به تیم ما اضافه شده و می‌خواهم طوری با او آشنا شوم که ارتباط کاری بهتری داشته باشیم.'],
+
+                ['title' => 'تاثیر تحریم جدید روی ارسال پول چیست؟', 'description' => 'خبر جدیدی درباره تحریم‌ها شنیدم و نمی‌دانم آیا خرید از خارج یا انتقال پول به ایران سخت‌تر می‌شود.'],
+                ['title' => 'محدودیت اینترنت جدید چه معنایی دارد؟', 'description' => 'مطالبی در شبکه‌های اجتماعی درباره محدودیت دسترسی به سایت‌ها دیدم. این تغییرات چگونه روی کاربران عادی تاثیر می‌گذارد؟'],
+                ['title' => 'چطور اخبار سیاسی را بدون تعصب دنبال کنم؟', 'description' => 'می‌خواهم منبعی برای خبرهای سیاسی پیدا کنم که هم متعادل باشد و هم تحلیل درست ارائه دهد.'],
+                ['title' => 'تغییر قانون مالیاتی روی کسب‌وکار کوچک چه تاثیری دارد؟', 'description' => 'یک کسب‌وکار خانگی دارم و شنیدم قانون جدید مالیات برای مشاغل کوچک تغییر کرده است. این برای من چه معنا دارد؟'],
+                ['title' => 'تحلیل گزارش جدید قیمت انرژی چه می‌گوید؟', 'description' => 'گزارشی درباره افزایش قیمت برق و گاز منتشر شده. این موضوع برای هزینه زندگی و کسب‌وکارهای کوچک چه معنی دارد؟'],
+            ];
+
+            $requests = collect($requestTemplates)->map(function ($template, $index) use ($users) {
+                $author = $users[$index % $users->count()];
+                $publishedAt = Carbon::now()
+                    ->subDays(rand(0, 45))
+                    ->subHours(rand(0, 23))
+                    ->subMinutes(rand(0, 59));
+
+                return Request::create([
+                    'title' => $template['title'],
+                    'description' => $template['description'],
+                    'author_id' => $author->id,
+                    'published_at' => $publishedAt,
+                ]);
+            });
+
             foreach ($requests as $requestIndex => $request) {
-                // Older requests tend to have more visits
-                $baseVisits = $requestIndex < 10 ? rand(12, 20) : ($requestIndex < 30 ? rand(6, 14) : rand(2, 8));
+                $visitCount = match (true) {
+                    $requestIndex < 8 => rand(90, 160),
+                    $requestIndex < 20 => rand(45, 95),
+                    $requestIndex < 35 => rand(25, 60),
+                    default => rand(12, 35),
+                };
 
-                for ($i = 0; $i < $baseVisits; $i++) {
-                    $visitor = (rand(1, 100) <= 75)
-                        ? $users->random() // 75% logged-in user
-                        : null;            // 25% guest
+                for ($i = 0; $i < $visitCount; $i++) {
+                    $visitor = (rand(1, 100) <= 70)
+                        ? $users->random()
+                        : null;
 
                     RequestVisit::create([
                         'request_id' => $request->id,
                         'visited_at' => Carbon::now()
-                            ->subDays(rand(0, 30))
+                            ->subDays(rand(0, 45))
                             ->subHours(rand(0, 23))
                             ->subMinutes(rand(0, 59)),
                         'user_id' => $visitor?->id,
                         'ip_address' => fakeIp(),
                     ]);
                 }
-            }
 
-            // Votes: deliberately structured so sorting by likes/favorites is meaningful
-            foreach ($requests as $requestIndex => $request) {
                 $authorId = $request->author_id;
-
-                // Exclude author from voting on their own request most of the time
                 $eligibleVoters = $users->filter(fn ($user) => $user->id !== $authorId)->values();
 
-                // Decide vote profile by request position
-                if ($requestIndex < 10) {
-                    // Top 10 requests: clearly popular
-                    $likeTarget = min(7, $eligibleVoters->count());
-                    $dislikeTarget = min(1, max(0, $eligibleVoters->count() - $likeTarget));
-                } elseif ($requestIndex < 20) {
-                    // Next 10: mixed
-                    $likeTarget = min(4, $eligibleVoters->count());
-                    $dislikeTarget = min(3, max(0, $eligibleVoters->count() - $likeTarget));
-                } elseif ($requestIndex < 35) {
-                    // Next 15: mostly disliked
-                    $likeTarget = min(1, $eligibleVoters->count());
-                    $dislikeTarget = min(5, max(0, $eligibleVoters->count() - $likeTarget));
-                } else {
-                    // Remaining requests: low activity
-                    $likeTarget = rand(0, 2);
-                    $dislikeTarget = rand(0, 2);
-                }
+                $profile = match (true) {
+                    $requestIndex < 8 => ['likes' => rand(8, 12), 'dislikes' => rand(0, 2)],
+                    $requestIndex < 20 => ['likes' => rand(5, 9), 'dislikes' => rand(1, 4)],
+                    $requestIndex < 35 => ['likes' => rand(2, 6), 'dislikes' => rand(2, 5)],
+                    default => ['likes' => rand(0, 4), 'dislikes' => rand(0, 3)],
+                };
 
                 $usedUserIds = [];
 
-                // Create likes first
-                for ($i = 0; $i < $likeTarget; $i++) {
+                for ($i = 0; $i < $profile['likes']; $i++) {
                     $voter = $this->pickUnusedUser($eligibleVoters, $usedUserIds);
                     if (! $voter) {
                         break;
@@ -113,8 +153,7 @@ class RequestSeeder extends Seeder
                     ]);
                 }
 
-                // Then dislikes
-                for ($i = 0; $i < $dislikeTarget; $i++) {
+                for ($i = 0; $i < $profile['dislikes']; $i++) {
                     $voter = $this->pickUnusedUser($eligibleVoters, $usedUserIds);
                     if (! $voter) {
                         break;
@@ -127,15 +166,13 @@ class RequestSeeder extends Seeder
                     ]);
                 }
 
-                // Small chance of 1 extra random vote for natural variation
-                if (rand(1, 100) <= 40) {
+                if (rand(1, 100) <= 35) {
                     $voter = $this->pickUnusedUser($eligibleVoters, $usedUserIds);
-
                     if ($voter) {
                         RequestVote::create([
                             'request_id' => $request->id,
                             'user_id' => $voter->id,
-                            'vote' => rand(0, 100) <= 70 ? 'like' : 'dislike',
+                            'vote' => rand(1, 100) <= 75 ? 'like' : 'dislike',
                         ]);
                     }
                 }

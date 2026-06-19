@@ -43,6 +43,8 @@ class Request extends Model
         'likes_count',
         'dislikes_count',
         // 'comments_count',
+        'user_vote_status', // Add this
+
     ];
 
     /**
@@ -155,5 +157,13 @@ class Request extends Model
 
         // 3. Soft‑delete the request
         $this->delete();
+    }
+
+    public function getUserVoteStatusAttribute()
+    {
+
+        $vote = $this->votes()->firstWhere('user_id', auth('api')->id());
+
+        return $vote ? $vote->vote : null;
     }
 }

@@ -14,10 +14,33 @@ class UserSeeder extends Seeder
     {
         User::query()->delete(); // optional: clean for re-seeding
 
-        $users = collect(range(1, 10))->map(function ($i) {
+        $usernames = [
+            'taher93',
+            'ninaTech',
+            'ali_dev',
+            'saraFinance',
+            'mehdiStudy',
+            'armanCareer',
+            'maryamHelp',
+            'saharCode',
+            'aminApp',
+            'zahraEdu',
+            'hosseinLaw',
+            'nedaLife',
+            'rezaNews',
+            'yasinCrypto',
+            'minaHealth',
+            'arashMarket',
+            'leilaPolicy',
+            'parisaDesign',
+            'hosseinGh',
+            'farnoosh101',
+        ];
+
+        $users = collect($usernames)->map(function ($username) {
             return User::create([
-                'username' => 'user'.$i,
-                'password' => bcrypt('password'), // simple for dev
+                'username' => $username,
+                'password' => bcrypt('password'),
             ]);
         });
 

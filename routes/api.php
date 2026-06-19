@@ -18,7 +18,10 @@ Route::post('/register', [AuthController::class, 'register']);
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/refresh', [AuthController::class, 'refresh']);
 Route::post('/check-username', [AuthController::class, 'checkUsername']);
-Route::middleware('auth:api')->group(function () {
+Route::middleware([
+    'auth:api',
+    'access.token',
+])->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::post('/change-password', [AuthController::class, 'changePassword']);
     // Route::post('/refresh', [AuthController::class, 'refresh']);
@@ -35,7 +38,10 @@ Route::prefix('requests')->group(function () {
     Route::get('/{request_model}/comments', [CommentController::class, 'requestComments']);
 
     // protected
-    Route::middleware('auth:api')->group(function () {
+    Route::middleware([
+        'auth:api',
+        'access.token',
+    ])->group(function () {
         Route::post('/', [RequestController::class, 'store']);
         Route::put('/{request_model}', [RequestController::class, 'update']);
         Route::delete('/{request}', [RequestController::class, 'destroy']);
@@ -51,7 +57,10 @@ Route::prefix('comments')->group(function () {
     Route::get('/{comment}', [CommentController::class, 'show']);
 
     // protected
-    Route::middleware('auth:api')->group(function () {
+    Route::middleware([
+        'auth:api',
+        'access.token',
+    ])->group(function () {
         Route::post('/', [CommentController::class, 'store']);
         Route::put('/{comment}', [CommentController::class, 'update']);
         Route::delete('/{comment}', [CommentController::class, 'destroy']);
@@ -59,21 +68,30 @@ Route::prefix('comments')->group(function () {
 });
 
 // Profile
-Route::prefix('profile')->middleware('auth:api')->group(function () {
+Route::prefix('profile')->middleware([
+    'auth:api',
+    'access.token',
+])->group(function () {
     Route::get('/stats', [ProfileController::class, 'stats']);
     Route::put('/change-username', [ProfileController::class, 'changeUsername']);
     Route::post('/delete-account', [ProfileController::class, 'deleteAccount']);
 });
 
 // My
-Route::prefix('my')->middleware('auth:api')->group(function () {
+Route::prefix('my')->middleware([
+    'auth:api',
+    'access.token',
+])->group(function () {
     Route::get('/requests', [RequestController::class, 'myRequests']);
     Route::get('/requests/{request}', [RequestController::class, 'showMy']);
     Route::get('/comments/{comment}', [CommentController::class, 'showMy']);
 });
 
 // Temp Files
-Route::prefix('temp-files')->middleware('auth:api')->group(function () {
+Route::prefix('temp-files')->middleware([
+    'auth:api',
+    'access.token',
+])->group(function () {
     Route::post('/upload', [TempFileController::class, 'upload']);
     Route::get('/my', [TempFileController::class, 'myTempFiles']);
     Route::post('/for-attachable', [TempFileController::class, 'forAttachable']);
@@ -81,7 +99,10 @@ Route::prefix('temp-files')->middleware('auth:api')->group(function () {
 });
 
 // Vote
-Route::post('/vote', [VoteController::class, 'toggle'])->middleware('auth:api');
+Route::post('/vote', [VoteController::class, 'toggle'])->middleware([
+    'auth:api',
+    'access.token',
+]);
 
 // app stats
 Route::get('/app-stats', function () {

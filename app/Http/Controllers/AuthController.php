@@ -8,10 +8,8 @@ use App\Http\Requests\RegisterRequest;
 use App\Models\RefreshToken;
 use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
-use Tymon\JWTAuth\Exceptions\TokenBlacklistedException;
-use Tymon\JWTAuth\Exceptions\TokenExpiredException;
-use Tymon\JWTAuth\Exceptions\TokenInvalidException;
 use Tymon\JWTAuth\Facades\JWTAuth;
 
 class AuthController extends Controller
@@ -44,11 +42,16 @@ class AuthController extends Controller
             'password' => $validated['password'],
         ];
 
-        if (! $token = JWTAuth::attempt($credentials)) {
-            return $this->errorResponse('Invalid credentials', 401);
+        if (! auth()->attempt($credentials)) {
+            return $this->errorResponse(
+                'Invalid credentials',
+                401
+            );
         }
 
         $user = auth()->user();
+
+        $token = $this->createAccessToken($user);
         $refreshToken = $this->createRefreshToken($user);
 
         return $this->successResponse([
@@ -63,67 +66,68 @@ class AuthController extends Controller
 
     public function refresh(Request $request)
     {
+        $authHeader = $request->header('Authorization');
+
+        if (
+            ! $authHeader ||
+            ! preg_match('/^Bearer\s+(.*)$/i', $authHeader, $matches)
+        ) {
+            return $this->errorResponse('Refresh token not provided', 401);
+        }
+
+        $token = $matches[1];
+
         try {
-            $refreshToken = null;
-            $authHeader = $request->header('Authorization');
+            // lockForUpdate is enough, DB::transaction can cause deadlocks
+            // when Node.js polls and retries quickly.
+            $record = RefreshToken::where('token', $token)->lockForUpdate()->first();
 
-            if ($authHeader && preg_match('/^Bearer\s+(.*)$/i', $authHeader, $matches)) {
-                $refreshToken = $matches[1];
+            if (! $record) {
+                return $this->errorResponse('Invalid refresh token', 401);
             }
 
-            if (! $refreshToken) {
-                return $this->errorResponse('Refresh token not provided in Authorization header', 401);
-            }
+            $verified = $this->verifyRefreshToken($token);
 
-            // Verify refresh token — also checks the reuse grace window
-            $refreshTokenData = $this->verifyRefreshToken($refreshToken);
-
-            if (! $refreshTokenData) {
+            if (! $verified) {
                 return $this->errorResponse('Invalid or expired refresh token', 401);
             }
 
-            // If this token was already revoked but within the grace window,
-            // return the previously issued tokens instead of creating new ones
-            if ($refreshTokenData['reused']) {
-                return $this->successResponse([
-                    'access_token' => $refreshTokenData['access_token'],
-                    'refresh_token' => $refreshTokenData['refresh_token'],
-                    'token_type' => 'bearer',
-                    'expires_in' => config('jwt.ttl') * 60,
-                    'refresh_expires_in' => config('jwt.refresh_ttl', 20160) * 60,
-                ], 'Token refreshed successfully (reused)');
-            }
+            $user = User::find($verified['user_id']);
 
-            $user = User::find($refreshTokenData['user_id']);
             if (! $user) {
                 return $this->errorResponse('User not found', 401);
             }
 
+            // If token was reused within the grace period, return the replacement token
+            if ($verified['reused']) {
+                return $this->successResponse([
+                    'access_token' => $this->createAccessToken($user),
+                    'refresh_token' => $verified['refresh_token'],
+                    'token_type' => 'bearer',
+                    'expires_in' => config('jwt.ttl') * 60,
+                    'refresh_expires_in' => config('jwt.refresh_ttl') * 60,
+                ]);
+            }
+
             // Generate new tokens
-            // $newAccessToken = JWTAuth::fromUser($user);
-            // $newRefreshToken = $this->createRefreshToken($user);
-            // Generate new tokens — clear any lingering custom claims first
-            $newAccessToken = JWTAuth::customClaims([])->fromUser($user);
+            $newAccessToken = $this->createAccessToken($user);
             $newRefreshToken = $this->createRefreshToken($user);
 
-            $this->invalidateRefreshToken($refreshToken, $newAccessToken, $newRefreshToken);
+            // Invalidate the old token and link the new one
+            $this->invalidateRefreshToken($token, $newRefreshToken);
 
             return $this->successResponse([
                 'access_token' => $newAccessToken,
                 'refresh_token' => $newRefreshToken,
                 'token_type' => 'bearer',
                 'expires_in' => config('jwt.ttl') * 60,
-                'refresh_expires_in' => config('jwt.refresh_ttl', 20160) * 60,
-            ], 'Token refreshed successfully');
+                'refresh_expires_in' => config('jwt.refresh_ttl') * 60,
+            ]);
 
-        } catch (TokenBlacklistedException $e) {
-            return $this->errorResponse('Token has been blacklisted', 401);
-        } catch (TokenExpiredException $e) {
-            return $this->errorResponse('Access token has expired, use refresh token', 401);
-        } catch (TokenInvalidException $e) {
-            return $this->errorResponse('Token is invalid', 401);
-        } catch (\Exception $e) {
-            return $this->errorResponse('Could not refresh token: '.$e->getMessage(), 401);
+        } catch (\Throwable $e) {
+            logger()->error($e);
+
+            return $this->errorResponse('Could not refresh token', 401);
         }
     }
 
@@ -132,13 +136,15 @@ class AuthController extends Controller
         try {
             JWTAuth::parseToken()->invalidate();
 
-            if ($request->has('refresh_token')) {
-                $this->invalidateRefreshToken($request->refresh_token);
+            $user = auth()->user();
+
+            if ($user) {
+                $this->invalidateAllUserTokens($user);
             }
 
             return $this->successResponse(null, 'Successfully logged out');
         } catch (\Exception $e) {
-            return $this->errorResponse('Could not log out', 401);
+            return $this->errorResponse('Could not log out: '.$e, 401);
         }
     }
 
@@ -179,26 +185,25 @@ class AuthController extends Controller
         );
     }
 
-    protected function createRefreshToken($user)
+    protected function createRefreshToken(User $user): string
     {
-        $exp = now()->addMinutes(config('jwt.refresh_ttl', 20160));
+        $ttl = JWTAuth::factory()->getTTL();
+        JWTAuth::factory()->setTTL(config('jwt.refresh_ttl'));
 
-        $generatedToken = JWTAuth::customClaims([
-            'type' => 'refresh',
-            'user_id' => $user->id,
-            'exp' => $exp->timestamp,
-        ])->fromUser($user);
+        $token = JWTAuth::claims(['type' => 'refresh'])->fromUser($user);
 
-        $refreshToken = RefreshToken::create([
+        JWTAuth::factory()->setTTL($ttl); // restore default TTL for subsequent access token creation
+
+        RefreshToken::create([
             'user_id' => $user->id,
-            'token' => $generatedToken,
-            'expires_at' => $exp,
+            'token' => $token,
+            'expires_at' => now()->addMinutes(config('jwt.refresh_ttl')),
         ]);
 
-        return $refreshToken->token;
+        return $token;
     }
 
-    protected function verifyRefreshToken($token)
+    protected function verifyRefreshToken(string $token): ?array
     {
         try {
             $payload = JWTAuth::setToken($token)->getPayload();
@@ -207,7 +212,6 @@ class AuthController extends Controller
                 return null;
             }
 
-            // First: check if token is still valid (not revoked)
             $refreshToken = RefreshToken::where('token', $token)
                 ->where('expires_at', '>', now())
                 ->first();
@@ -216,49 +220,60 @@ class AuthController extends Controller
                 return null;
             }
 
-            // Token is still active — valid, not yet revoked
             if (! $refreshToken->revoked) {
                 return [
                     'user_id' => $payload->get('sub'),
-                    'expires_at' => $refreshToken->expires_at,
                     'reused' => false,
                 ];
             }
 
-            // Token is revoked — check if it's within the grace window (10 seconds)
-            // and has replacement tokens stored (meaning WE revoked it, not a logout)
-            $withinGrace = $refreshToken->revoked_at &&
-                now()->diffInSeconds($refreshToken->revoked_at) <= 10;
+            $withinGrace =
+                $refreshToken->revoked_at &&
+                $refreshToken->revoked_at
+                    ->copy()
+                    ->addSeconds(30) // Increased to 30s for Node Redis polling
+                    ->isFuture();
 
-            if ($withinGrace && $refreshToken->replacement_access_token) {
+            if (
+                $withinGrace &&
+                $refreshToken->replacement_refresh_token
+            ) {
+                $replacement = RefreshToken::where(
+                    'token',
+                    $refreshToken->replacement_refresh_token
+                )
+                    ->where('revoked', false)
+                    ->where('expires_at', '>', now())
+                    ->first();
+
+                if (! $replacement) {
+                    return null;
+                }
+
                 return [
-                    'user_id' => $payload->get('sub'),
-                    'expires_at' => $refreshToken->expires_at,
+                    'user_id' => $replacement->user_id,
                     'reused' => true,
-                    'access_token' => $refreshToken->replacement_access_token,
-                    'refresh_token' => $refreshToken->replacement_refresh_token,
+                    'refresh_token' => $replacement->token,
                 ];
             }
 
             return null;
+        } catch (\Throwable $e) {
+            logger()->error($e);
 
-        } catch (\Exception $e) {
             return null;
         }
     }
 
-    /**
-     * Invalidate a refresh token, optionally storing replacement tokens
-     * so concurrent requests within the grace window can reuse them.
-     */
-    protected function invalidateRefreshToken($token, $newAccessToken = null, $newRefreshToken = null)
-    {
+    protected function invalidateRefreshToken(
+        string $token,
+        ?string $replacementRefreshToken = null
+    ): void {
         RefreshToken::where('token', $token)
             ->update([
                 'revoked' => true,
                 'revoked_at' => now(),
-                'replacement_access_token' => $newAccessToken,
-                'replacement_refresh_token' => $newRefreshToken,
+                'replacement_refresh_token' => $replacementRefreshToken,
             ]);
     }
 
@@ -268,8 +283,14 @@ class AuthController extends Controller
             ->update([
                 'revoked' => true,
                 'revoked_at' => now(),
-                'replacement_access_token' => null,
                 'replacement_refresh_token' => null,
             ]);
+    }
+
+    protected function createAccessToken(User $user): string
+    {
+        return JWTAuth::claims([
+            'type' => 'access',
+        ])->fromUser($user);
     }
 }

@@ -23,70 +23,103 @@ class CommentSeeder extends Seeder
                 return;
             }
 
-            $commentPoolPerRequest = [];
-
             foreach ($requests as $requestIndex => $request) {
-                // 2..8 comments per request
-                $count = rand(2, 8);
+                $topLevelCount = rand(3, 7);
+                $topLevelComments = collect();
+                $allComments = collect();
 
-                $createdComments = collect();
-
-                for ($i = 0; $i < $count; $i++) {
+                for ($i = 0; $i < $topLevelCount; $i++) {
                     $author = $users->random();
-
-                    // ~25% chance this comment is a reply (threaded), if we already have a parent
-                    $isReply = $createdComments->count() > 0 && rand(1, 100) <= 25;
-
-                    $parentId = null;
-
-                    if ($isReply) {
-                        $parent = $createdComments->random();
-                        $parentId = $parent->id;
-                    }
-
-                    $createdComments->push(
-                        Comment::create([
-                            'author_id' => $author->id,
-                            'request_id' => $request->id,
-                            'parent_id' => $parentId,
-                            'body' => $this->makeBody($request->id, $author->username, $i),
-                            'is_chosen_answer' => false, // set later
-                            'created_at' => Carbon::now()
-                                ->subDays(rand(0, 30))
-                                ->subHours(rand(0, 23))
-                                ->subMinutes(rand(0, 59)),
-                            'updated_at' => Carbon::now(),
-                        ])
-                    );
-                }
-
-                // Choose an answer sometimes (e.g., 40% of requests)
-                if (rand(1, 100) <= 40 && $createdComments->isNotEmpty()) {
-                    // pick a comment from this request (not necessarily top-level)
-                    $chosen = $createdComments->random();
-
-                    Comment::where('id', $chosen->id)->update([
-                        'is_chosen_answer' => true,
+                    $comment = Comment::create([
+                        'author_id' => $author->id,
+                        'request_id' => $request->id,
+                        'parent_id' => null,
+                        'body' => $this->makeBody($request->title, $author->username, null),
+                        'is_chosen_answer' => false,
+                        'created_at' => $this->randomCreatedAt($request->published_at),
                         'updated_at' => Carbon::now(),
                     ]);
+
+                    $topLevelComments->push($comment);
+                    $allComments->push($comment);
                 }
 
-                $commentPoolPerRequest[$request->id] = $createdComments;
+                foreach ($topLevelComments as $parentComment) {
+                    if (rand(1, 100) <= 60) {
+                        $replyCount = rand(1, 3);
+                        for ($j = 0; $j < $replyCount; $j++) {
+                            $replyAuthor = $users->where('id', '!=', $parentComment->author_id)->random();
+                            $reply = Comment::create([
+                                'author_id' => $replyAuthor->id,
+                                'request_id' => $request->id,
+                                'parent_id' => $parentComment->id,
+                                'body' => $this->makeBody($request->title, $replyAuthor->username, $parentComment->author->username),
+                                'is_chosen_answer' => false,
+                                'created_at' => $this->randomCreatedAt($parentComment->created_at),
+                                'updated_at' => Carbon::now(),
+                            ]);
+
+                            $allComments->push($reply);
+
+                            if (rand(1, 100) <= 30) {
+                                $subReplyAuthor = $users->where('id', '!=', $reply->author_id)->random();
+                                $subReply = Comment::create([
+                                    'author_id' => $subReplyAuthor->id,
+                                    'request_id' => $request->id,
+                                    'parent_id' => $reply->id,
+                                    'body' => $this->makeBody($request->title, $subReplyAuthor->username, $reply->author->username),
+                                    'is_chosen_answer' => false,
+                                    'created_at' => $this->randomCreatedAt($reply->created_at),
+                                    'updated_at' => Carbon::now(),
+                                ]);
+
+                                $allComments->push($subReply);
+                            }
+                        }
+                    }
+                }
+
+                if (rand(1, 100) <= 45 && $allComments->isNotEmpty()) {
+                    $chosen = $allComments->random();
+                    $chosen->update(['is_chosen_answer' => true]);
+                }
             }
         });
     }
 
-    private function makeBody(int $requestId, string $username, int $i): string
+    private function makeBody(string $requestTitle, string $authorUsername, ?string $replyToUsername): string
     {
         $templates = [
-            'Great point on request #'.$requestId.' — thanks!',
-            'I agree with @'.$username.'',
-            'Could you clarify the details for #'.$requestId.'?',
-            'Interesting perspective. Here is my take...',
-            'I think this depends on timing and requirements.',
-            'Solid explanation. Looking forward to updates.',
+            'این موضوع برای خیلی‌ها مهم است. به نظرم بهتر است در بخش اول بیشتر روی نیازها تمرکز کنید.',
+            'با توجه به تجربه‌ام، اگر یک نمونه کار مرتبط داشته باشید شانس پاسخگویی بالاتری دارید.',
+            'اگر توضیح بیشتری درباره سابقه داشته باشید، می‌توان پیشنهاد بهتری داد.',
+            'این سوال معمولاً در مصاحبه پرسیده می‌شود، پس بهتر است جواب دقیق و شفاف آماده کنید.',
+            'من هم با همین مشکل روبه‌رو بودم و راه‌حل من این بود که اول از همه جزئیات را در یک فایل پیوست کنم.',
+            'به نظر می‌رسد نیاز دارید بخش اهداف شغلی را روشن‌تر بنویسید.',
+            'اگر بخواهید، می‌توانم یک جمله برای معرفی بهتر پیشنهاد کنم.',
+            'این موضوع مهم است؛ شاید بهتر باشد مثال‌های واقعی اضافه کنید.',
+            'دیدگاه شخصی من این است که روی ساختار پاسخ تمرکز کنید و سپس هزینه‌ها را مقایسه کنید.',
+            'اگر پاسخ‌ها‌ی قبلی کمک نکرد، لطفا جزئیات بیشتری از وضعیت فعلی ارسال کنید.',
         ];
 
-        return $templates[$i % count($templates)].' (comment '.($i + 1).')';
+        $baseText = $templates[array_rand($templates)];
+
+        if ($replyToUsername !== null) {
+            return "@{$replyToUsername} {$baseText}";
+        }
+
+        return $baseText;
+    }
+
+    private function randomCreatedAt($referenceDate)
+    {
+        if (! $referenceDate instanceof Carbon) {
+            $referenceDate = Carbon::parse($referenceDate);
+        }
+
+        return $referenceDate
+            ->copy()
+            ->addHours(rand(1, 72))
+            ->addMinutes(rand(0, 59));
     }
 }
