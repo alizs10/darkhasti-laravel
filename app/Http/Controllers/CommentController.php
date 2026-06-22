@@ -98,8 +98,10 @@ class CommentController extends Controller
 
         $query = $requestModel->comments()
             ->with(['author', 'attachedFiles'])
-            // ->withCount(['likes', 'dislikes', 'replies'])
+            ->withCount(['likes', 'dislikes', 'replies'])
             ->whereNull('parent_id');
+
+        // dd($order);
 
         switch ($order) {
             case 'favorite':
@@ -118,7 +120,7 @@ class CommentController extends Controller
 
             case 'new':
             default:
-                $query->latest('id');
+                $query->latest('created_at');
                 break;
         }
 

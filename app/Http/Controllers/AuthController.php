@@ -155,7 +155,7 @@ class AuthController extends Controller
         $user = auth()->user();
 
         if (! Hash::check($validated['current_password'], $user->password)) {
-            return $this->errorResponse('Current password is incorrect', 422);
+            return $this->errorResponse('کلمه عبور فعلی اشتباه است', 422);
         }
 
         $user->update([
